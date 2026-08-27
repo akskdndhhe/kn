@@ -14,7 +14,7 @@
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import axios, { API } from "../services/apiClient";
-import { askReason } from "../services/confirmService";
+import { askConfirm, askReason } from "../services/confirmService";
 import { notifySuccess } from "../utils/feedback";
 import EntityBadge from "./EntityBadge";
 import { roleLabel } from "../config/roles";
@@ -63,20 +63,40 @@ export default function WaitingQueueBoard({
   async function act(row) {
     const a = row.action;
     if (!a) return;
-    const note = await askReason({
-      title: `${a.label} ${row.number}?`,
-      message: `${row.title || ""}${row.amount > 0 ? ` · ${fmtCur(row.amount)}` : ""}`,
-      confirmLabel: a.label,
-      reasonLabel: "Catatan (opsional)",
-      reasonRequired: false,
-      reasonPlaceholder: "Boleh dikosongkan",
-      testId: `${rowTestIdBase}-confirm`,
-    });
-    if (note === null) return;                    // dibatalkan
+    // T5: server bisa menyatakan keputusan ini PASTI ditolak untuk dokumen ini
+    // (pemisahan tugas / ambang Direksi). Tombolnya tampil mati beserta alasannya.
+    if (a.blocked_reason) { setActError(a.blocked_reason); return; }
+    const title = `${a.label} ${row.number}?`;
+    const message = `${row.title || ""}${row.amount > 0 ? ` · ${fmtCur(row.amount)}` : ""}`;
+    let note = "";
+    if (a.note_field) {
+      // T3 DIBAYAR: isian catatan hanya diminta bila endpointnya PUNYA tempat
+      // menyimpannya (`note_field`).
+      const res = await askReason({
+        title, message, confirmLabel: a.label,
+        reasonLabel: "Catatan (opsional)",
+        reasonRequired: false,
+        reasonPlaceholder: "Boleh dikosongkan",
+        testId: `${rowTestIdBase}-confirm`,
+      });
+      if (res === null) return;                   // dibatalkan
+      note = res;
+    } else {
+      // T2 DIBAYAR: dulu dialognya SELALU meminta catatan padahal endpoint tujuannya
+      // tidak punya field catatan — apa yang diketik orang dibuang diam-diam.
+      const ok = await askConfirm({
+        title, message, confirmLabel: a.label,
+        testId: `${rowTestIdBase}-confirm`,
+      });
+      if (!ok) return;
+    }
     setBusyId(row.id); setActError("");
     try {
       const body = { ...(a.body || {}) };
-      if (a.note_field) body[a.note_field] = note || "";
+      // T3 DIBAYAR: catatan KOSONG jangan dikirim — nilai "" menimpa default server
+      // yang berarti (mis. alasan bawaan persetujuan stock opname) sehingga
+      // penyesuaian stok tercatat tanpa alasan apa pun.
+      if (a.note_field && note) body[a.note_field] = note;
       await axios.post(`${API}${a.path}`, body);
       notifySuccess(`${a.label}: ${row.number}`, "Papan diperbarui.");
       if (onActed) await onActed();
@@ -163,11 +183,12 @@ export default function WaitingQueueBoard({
               {r.action && (
                 <button type="button"
                   data-testid={`${rowTestIdBase}-act-${r.id}`}
-                  disabled={busyId === r.id}
+                  disabled={busyId === r.id || !!r.action.blocked_reason}
                   onClick={() => act(r)}
-                  className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white transition disabled:opacity-50"
+                  className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ background: accent }}
-                  title={`${r.action.label} langsung dari papan ini`}>
+                  title={r.action.blocked_reason
+                    || `${r.action.label} langsung dari papan ini`}>
                   {busyId === r.id ? "…" : r.action.label}
                 </button>
               )}

@@ -26,6 +26,10 @@ export default function OperationsView({
   defaultTab,
 }) {
   const [wmsTab, setWmsTab] = useState(defaultTab || "stok");
+  // T6 DIBAYAR (2026-06c): keputusan dari papan di atas harus ikut menyegarkan
+  // DAFTAR di bawahnya (Transfer & Stock Opname memuat datanya sendiri), supaya
+  // satu dokumen tidak tampil "menunggu ACC" di layar yang sama (INV-HOME-01).
+  const [boardsVersion, setBoardsVersion] = useState(0);
 
   // Sync tab when deep-link navigation from sidebar changes defaultTab
   useEffect(() => {
@@ -60,6 +64,7 @@ export default function OperationsView({
           terlihat di tab mana pun petugas berada. Angkanya milik backend. */}
       <WaitingBoardsStrip endpoint="/home/warehouse" entityId={selectedEntity}
         primaryKey="transfer" testIdPrefix="wms-home"
+        onActed={() => setBoardsVersion((v) => v + 1)}
         onNavigate={(view, key) => {
           const tab = { transfer: "transfer", cycle_count: "cycle" }[key];
           if (tab) setWmsTab(tab);
@@ -139,14 +144,15 @@ export default function OperationsView({
             </div>
           </div>
           <div className="section-body">
-            <TransferManagement user={user} />
+            {/* T6: papan di atas boleh memaksa daftar ini memuat ulang. */}
+            <TransferManagement key={`transfer-${boardsVersion}`} user={user} />
           </div>
         </div>
       )}
 
       {/* CYCLE COUNT TAB */}
       {activeTab === "cycle" && (
-        <CycleCount token={token} warehouses={data.warehouses || []} products={data.products || []} userRole={user?.role} />
+        <CycleCount key={`cycle-${boardsVersion}`} token={token} warehouses={data.warehouses || []} products={data.products || []} userRole={user?.role} />
       )}
     </div>
   );

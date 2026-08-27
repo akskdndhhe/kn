@@ -1,5 +1,31 @@
 # HANDOFF — AUDIT PEKERJAAN TERAKHIR (sesi 2026-06c)
 
+> **STATUS EKSEKUSI (sesi lanjutan, atas izin pemilik: "kerjakan semua T1–T8"):**
+> **T1–T8 SUDAH DIKERJAKAN & DIVALIDASI.** Bukti (preview):
+> · T1 `GET /api/inventory/rolls/{id}/cost-history` kini `require_any_permission`
+>   (`wms.view` / `accounting.view` / `product.view`) → **200 untuk finance,
+>   sales_admin, warehouse, manager, admin**; galat pengambilan bukti TIDAK lagi
+>   ditelan (`recon-suspect-cost-history-error`).
+> · T2 dialog papan hanya meminta catatan bila `ACTION_META.note_field` ada
+>   (transfer · kontrabon verifikasi/ACC · tagihan supplier → dialog Ya/Batal).
+> · T3 catatan kosong TIDAK dikirim → `approval_reason` tetap default server
+>   ("Disetujui sesuai hasil cycle count").
+> · T4 `_post_bill()` memakai `updated.get("po_id")` + melewati `sync_po_billing`
+>   bila kosong → tagihan tanpa PO **200**, bukan 500 `KeyError`.
+> · T5 papan menerima `actor`; `_action_block_reason()` membaca
+>   `approval_matrix_service` (SoD + ambang Direksi) → `action.blocked_reason`,
+>   tombolnya tampil MATI beserta alasannya (server tetap 403 bila dipaksa).
+> · T6 `WaitingBoardsStrip.onActed` dinaikkan ke pemilik layar (OperationsView
+>   memaksa daftar Transfer & Stock Opname memuat ulang; FinanceDesk `load`).
+> · T7 `roll_cost_history.record()` dipanggil SESUDAH `update_one` dan hanya bila
+>   `modified_count` (interco · interco_return · landed_cost).
+> · T8 kunci `cycle_count_adjustment` DIHAPUS dari `REASONS` (tidak ada penulis;
+>   penyesuaian opname mengubah kuantitas, bukan HPP/unit).
+> Pagar: `verify_data_integrity` 242 PASS/0 FAIL · `verify_home_kpi` 108 PASS ·
+> `verify_approval_queues` 223 PASS · `verify_blocking_dialogs` · `verify_error_notice`
+> 243 PASS · agen uji `iteration_255` **18/18 PASS** (`backend/tests/test_iter255_t1_t8.py`).
+> T9 & T10 tetap CATATAN (belum dikerjakan sesuai keputusan pemilik).
+
 > Dibuat: **2026-06 (audit pasca-implementasi, BELUM ADA PERBAIKAN DIJALANKAN)**
 > Cakupan: tiga pekerjaan sesi terakhir — (1) nilai rupiah tagihan supplier di papan,
 > (2) riwayat nilai (HPP) roll, (3) papan bisa ditindak.

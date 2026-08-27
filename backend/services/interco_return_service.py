@@ -721,12 +721,7 @@ async def on_return_task_executed(transfer: Dict[str, Any], actor: str) -> Dict[
         # PELANGGAN yang sudah dihapus-bukukan (mis. `damaged` → 0), angkanya jauh
         # lebih kecil — dan itulah yang harus dikreditkan, bukan harga jual internal.
         carry_out += length * booked
-        # Riwayat nilai roll (2026-06): kenaikan/penurunan HPP tidak boleh diam-diam.
-        await _cost_history.record(
-            r, target, "interco_return_revalue", actor=actor,
-            ref_type="interco_return", ref_id=rp,
-            ref_number=(returner or {}).get("number", ""))
-        await db.inventory_rolls.update_one({"id": r["id"]}, {"$set": {
+        _upd = await db.inventory_rolls.update_one({"id": r["id"]}, {"$set": {
             "unit_cost": round(target, 2),
             "base_unit_cost": round(target, 2),
             "cost_basis": {
@@ -740,6 +735,14 @@ async def on_return_task_executed(transfer: Dict[str, Any], actor: str) -> Dict[
             },
             "updated_at": now_iso(),
         }})
+        # T7 DIBAYAR (2026-06c): jejak nilai ditulis SESUDAH pembaruan roll berhasil.
+        # Dulu urutannya terbalik: bila pembaruan gagal, jejaknya sudah mengaku ada
+        # perubahan yang tak pernah terjadi — alat bukti yang berbohong.
+        if _upd.modified_count:
+            await _cost_history.record(
+                r, target, "interco_return_revalue", actor=actor,
+                ref_type="interco_return", ref_id=rp,
+                ref_number=(returner or {}).get("number", ""))
         revalued += 1
     cost_back = round(cost_back, 2)
     carry_out = round(carry_out, 2)

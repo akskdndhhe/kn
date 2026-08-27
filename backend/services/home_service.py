@@ -31,7 +31,8 @@ def _month_progress() -> tuple:
 
 
 async def sales_home(sales_id: str, entity_id: Optional[str] = None,
-                     allowed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     allowed: Optional[Dict[str, Any]] = None,
+                     actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Performa Saya — komisi MTD (akrual+proyeksi), target & capaian, customer+kredit,
     penagihan, order terbaru. TANPA biaya/HPP."""
     period = _current_month()
@@ -106,12 +107,14 @@ async def sales_home(sales_id: str, entity_id: Optional[str] = None,
         # Papan antrean mahal versi SALES (2026-06) — sumber & umur tunggunya sama
         # dengan papan pemilik/manajer (`approval_backlog_service`), jadi angka yang
         # dilihat sales untuk dokumen yang sama tidak mungkin berbeda.
-        "waiting_boards": await _waiting_boards(entity_id, SALES_BOARD_KEYS, allowed),
+        "waiting_boards": await _waiting_boards(entity_id, SALES_BOARD_KEYS, allowed,
+                                                actor),
     }
 
 
 async def manager_home(period: Optional[str] = None, entity_id: Optional[str] = None,
-                       allowed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                       allowed: Optional[Dict[str, Any]] = None,
+                       actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manager Home (Dasbor Manajer) — tiga pertanyaan manajer setiap pagi:
 
     1. **Apa yang menunggu tanda tangan saya?** → antrean persetujuan, dirinci per jenis.
@@ -145,7 +148,7 @@ async def manager_home(period: Optional[str] = None, entity_id: Optional[str] = 
     # 2026-06 — papan antrean mahal kini ADA JUGA di Dasbor Manajer. Sebelum ini hanya
     # beranda pemilik memilikinya, padahal yang menandatangani PO custom & sengketa
     # kontrabon justru manajer: pemilik melihat pekerjaannya, orangnya tidak.
-    waiting_boards = await _waiting_boards(entity_id, HOME_BOARD_KEYS, allowed)
+    waiting_boards = await _waiting_boards(entity_id, HOME_BOARD_KEYS, allowed, actor)
     day, days_in_month = _month_progress()
     return {
         "period": period,
@@ -220,7 +223,8 @@ FINANCE_BOARD_KEYS = ("contra_bon_approve", "contra_bon_verify", "contra_bon_dis
 
 async def _waiting_boards(entity_id: Optional[str],
                           keys: tuple = HOME_BOARD_KEYS,
-                          allowed: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+                          allowed: Optional[Dict[str, Any]] = None,
+                          actor: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Papan antrean mahal untuk beranda (urutan tetap).
 
     Definisi "menunggu" + umur tunggunya tetap milik `approval_backlog_service`
@@ -234,21 +238,24 @@ async def _waiting_boards(entity_id: Optional[str],
     """
     from services import approval_backlog_service as abl
 
-    return await abl.boards(list(keys), entity_id, limit=10, allowed=allowed)
+    return await abl.boards(list(keys), entity_id, limit=10, allowed=allowed,
+                            actor=actor)
 
 
 async def warehouse_home(entity_id: Optional[Any] = None,
-                         allowed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                         allowed: Optional[Dict[str, Any]] = None,
+                         actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Papan antrean gudang — dipakai layar Operasi (WMS) di atas tab-tabnya."""
-    boards = await _waiting_boards(entity_id, WAREHOUSE_BOARD_KEYS, allowed)
+    boards = await _waiting_boards(entity_id, WAREHOUSE_BOARD_KEYS, allowed, actor)
     return {"waiting_boards": boards,
             "total_waiting": sum(int(b.get("count") or 0) for b in boards)}
 
 
 async def finance_home(entity_id: Optional[Any] = None,
-                       allowed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                       allowed: Optional[Dict[str, Any]] = None,
+                       actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Papan antrean keuangan — dipakai Meja Finance di atas antrean pekerjaannya."""
-    boards = await _waiting_boards(entity_id, FINANCE_BOARD_KEYS, allowed)
+    boards = await _waiting_boards(entity_id, FINANCE_BOARD_KEYS, allowed, actor)
     return {"waiting_boards": boards,
             "total_waiting": sum(int(b.get("count") or 0) for b in boards)}
 
@@ -315,7 +322,8 @@ async def _designer_snapshot(entity_id: Optional[str]) -> Dict[str, Any]:
 
 
 async def admin_home(entity_id: Optional[str] = None,
-                     allowed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     allowed: Optional[Dict[str, Any]] = None,
+                     actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Admin Control Tower — penjualan hari/MTD, AR aging ringkas, approval pending,
     low-stock/reorder, ringkasan payout insentif."""
     period = _current_month()
@@ -345,7 +353,7 @@ async def admin_home(entity_id: Optional[str] = None,
     # jadi terlambat memutuskannya paling mahal. Di kartu "Paling Lama Menunggu"
     # dokumen ini bisa TIDAK PERNAH muncul (5 baris, dicampur 33 antrean), karena itu
     # ia punya papannya sendiri — lengkap dengan UMUR TUNGGU tiap dokumen.
-    waiting_boards = await _waiting_boards(entity_id, HOME_BOARD_KEYS, allowed)
+    waiting_boards = await _waiting_boards(entity_id, HOME_BOARD_KEYS, allowed, actor)
     special_orders_waiting = waiting_boards[0]
 
     reorder = await reorder_suggestions(entity_id)

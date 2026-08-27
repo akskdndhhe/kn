@@ -1499,10 +1499,7 @@ async def on_warehouse_task_executed(transfer: Dict[str, Any], actor: str) -> Di
         new_cost = price_map.get(r["product_id"])
         if new_cost is None or new_cost <= 0:
             continue
-        await _cost_history.record(
-            r, round(new_cost, 2), "interco_purchase_revalue", actor=actor,
-            ref_type="interco", ref_id=pair_id, ref_number=seller.get("number", ""))
-        await db.inventory_rolls.update_one({"id": r["id"]}, {"$set": {
+        _upd = await db.inventory_rolls.update_one({"id": r["id"]}, {"$set": {
             "unit_cost": round(new_cost, 2),
             "base_unit_cost": round(new_cost, 2),
             "cost_basis": {
@@ -1514,6 +1511,11 @@ async def on_warehouse_task_executed(transfer: Dict[str, Any], actor: str) -> Di
             },
             "updated_at": now_iso(),
         }})
+        # T7 DIBAYAR (2026-06c): jejak nilai ditulis SESUDAH pembaruannya tersimpan.
+        if _upd.modified_count:
+            await _cost_history.record(
+                r, round(new_cost, 2), "interco_purchase_revalue", actor=actor,
+                ref_type="interco", ref_id=pair_id, ref_number=seller.get("number", ""))
         revalued += 1
 
     ts = now_iso()

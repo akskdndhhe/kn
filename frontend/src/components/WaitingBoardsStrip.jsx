@@ -18,7 +18,7 @@ import WaitingQueueBoard from "./WaitingQueueBoard";
 import { boardLook, selectWaitingBoards } from "../config/waitingBoards";
 
 export default function WaitingBoardsStrip({
-  endpoint, entityId = "all", primaryKey, testIdPrefix, onNavigate,
+  endpoint, entityId = "all", primaryKey, testIdPrefix, onNavigate, onActed,
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,11 @@ export default function WaitingBoardsStrip({
         const look = boardLook(b.key);
         return (
           <WaitingQueueBoard key={b.key} board={b} loading={loading && !data}
-            unreadable={unreadable} onRetry={load} onActed={load}
+            unreadable={unreadable} onRetry={load}
+            /* T6 DIBAYAR (2026-06c): sesudah keputusan, BUKAN hanya papan ini yang
+               harus segar — daftar di bawahnya (tab Transfer, antrean Meja Finance)
+               memakai data yang sama. Dua angka berbeda di satu layar = INV-HOME-01. */
+            onActed={async () => { await load(); if (onActed) await onActed(); }}
             onNavigate={(view) => onNavigate && onNavigate(view, b.key)}
             showEntity={showEntity} icon={look.icon} accent={look.accent}
             gotoLabel={look.goto} emptyText={look.empty} title={look.title}

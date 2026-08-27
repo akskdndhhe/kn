@@ -1,0 +1,23 @@
+# Iterasi 255 — Eksekusi temuan audit T1–T8 (sesi 2026-06c)
+
+Masalah asal (pemilik): lanjutkan development repo `walsaksajanaba/kn`; audit sebelumnya
+menulis 10 temuan tanpa eksekusi. Keputusan pemilik: **kerjakan semua T1–T8**, validasi
+wiring API/DB/flow yang berhubungan, acuan lingkungan **preview**. Fitur "Sengketa Bisa
+Diputus" DITUNDA atas permintaan pemilik.
+
+## Yang dikerjakan (2026-06, sesi lanjutan)
+- T1 izin endpoint riwayat nilai roll + galat bukti tidak lagi ditelan.
+- T2 dialog papan tak lagi meminta catatan yang tak punya tempat penyimpanan.
+- T3 catatan kosong tidak menimpa alasan bawaan stock opname.
+- T4 `vendor-bills/{id}/approve` tidak lagi 500 untuk tagihan tanpa PO.
+- T5 pra-cek SoD & ambang Direksi di papan (`action.blocked_reason`).
+- T6 daftar di bawah papan ikut menyegar sesudah keputusan.
+- T7 jejak nilai roll ditulis sesudah pembaruan berhasil.
+- T8 alasan tanpa penulis dihapus dari registry.
+
+## Sisa backlog
+- P1: T9 backfill riwayat nilai roll (hanya dari sumber nyata, ditandai
+  `reason: "backfill_dari_jejak_dokumen"`).
+- P1: T10 kunci berkas `memory/.poc.lock` supaya POC & pemeriksa lain tak berbenturan.
+- P1: "Sengketa Bisa Diputus" — terima/tolak/potong sebagian langsung di baris kontrabon.
+- P2: pra-cek T5 diperluas ke tahap berjenjang lain + mode "Semua Entitas".

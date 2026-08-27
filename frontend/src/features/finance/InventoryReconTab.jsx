@@ -79,10 +79,18 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
         // "roll ini bernilai Rp 900.000" jauh lebih berguna bila disertai siapa yang
         // menaikkan nilainya dan atas dasar apa.
         if (data?.id) {
+          // T1 DIBAYAR (2026-06c): galatnya dulu DITELAN, jadi blok riwayat tidak
+          // pernah muncul tanpa satu pun pesan — kegagalan tampil sebagai kabar
+          // baik (kelas regresi B5). Sekarang sebabnya ikut dilaporkan.
           try {
             const h = await axios.get(`${API}/inventory/rolls/${data.id}/cost-history`);
-            data = { ...data, cost_history: (h.data?.history || []).slice(0, 3) };
-          } catch (_) { /* bukti tambahan bersifat opsional */ }
+            data = { ...data, cost_history: (h.data?.history || []).slice(0, 3),
+              cost_history_error: "" };
+          } catch (e) {
+            data = { ...data, cost_history: [],
+              cost_history_error: e.response?.data?.detail
+                || "Riwayat nilai (HPP) tidak bisa dibaca dengan izin Anda." };
+          }
         }
       } else if (ref.kind === "journal" && ref.id) {
         data = (await axios.get(`${API}/gl/journal/${ref.id}`)).data;
@@ -286,6 +294,13 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
                                 dokumen {(evidence.data.acquired || {}).ref_id || "—"} ·
                                 status {evidence.data.status}
                               </p>
+                              {evidence.data.cost_history_error ? (
+                                <p className="mt-1 border-t border-[#EDEFF3] pt-1 text-[10.5px] font-semibold text-[#C62828]"
+                                  data-testid="recon-suspect-cost-history-error">
+                                  Riwayat nilai (HPP) tidak bisa dibaca:{" "}
+                                  {evidence.data.cost_history_error}
+                                </p>
+                              ) : null}
                               {(evidence.data.cost_history || []).length > 0 && (
                                 <div className="mt-1 border-t border-[#EDEFF3] pt-1"
                                   data-testid="recon-suspect-cost-history">

@@ -497,8 +497,44 @@ ACTION_META: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _row_action(key: str, doc: Dict[str, Any],
-                allowed: Optional[Dict[str, List[str]]]) -> Optional[Dict[str, Any]]:
+#: Tahap matriks persetujuan untuk papan yang memang ditegakkan `approval_matrix_service`.
+#: Dipakai PRA-CEK T5 (SoD & ambang Direksi) supaya tombol yang untuk dokumen itu PASTI
+#: gagal tidak pernah digambar. Papan lain tetap hanya diperiksa izin peran.
+_STAGE_BY_KEY: Dict[str, str] = {"special_order": "po_custom"}
+
+
+async def _action_block_reason(key: str, doc: Dict[str, Any],
+                               actor: Optional[Dict[str, Any]]) -> str:
+    """Alasan-tak-boleh yang SUDAH pasti sekarang — "" bila tidak ada.
+
+    T5 DIBAYAR (2026-06c): `_row_action` dulu hanya memeriksa matriks izin PERAN,
+    sehingga pemisahan tugas (pembuat ≠ penyetuju) dan ambang Direksi baru terasa
+    SESUDAH tombol ditekan (403). Server tetap menolak — jadi ini bukan lubang
+    keamanan — tetapi tombol yang pasti gagal adalah janji yang tak bisa ditepati.
+    Aturannya TIDAK dipindahkan ke sini: dibaca dari `approval_matrix_service` yang
+    juga dipakai endpointnya.
+    """
+    if not actor:
+        return ""
+    from services import approval_matrix_service as amx
+
+    entity_id = str(doc.get("entity_id") or "")
+    stage = _STAGE_BY_KEY.get(key)
+    if stage:
+        cfg = await amx.settings(entity_id)
+        ev = amx.evaluate(stage, actor, doc, cfg,
+                          amount=_as_float(doc.get("total_amount")))
+        if ev.get("blocked"):
+            return " ".join(r["message"] for r in ev.get("reasons") or [])
+        return ""
+    # Papan tanpa tahap matriks: pemisahan tugas tetap berlaku sebagai kebijakan umum
+    # HANYA bila endpointnya memang menegakkannya (dipakai `sod_blocked`).
+    return ""
+
+
+async def _row_action(key: str, doc: Dict[str, Any],
+                      allowed: Optional[Dict[str, List[str]]],
+                      actor: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Aksi inline untuk SATU baris papan — atau `None` bila tak boleh/tak ada.
 
     `allowed` = matriks izin peran pemanggil (`{modul: [aksi]}`). Bila `None`, tombol
@@ -517,6 +553,10 @@ def _row_action(key: str, doc: Dict[str, Any],
         path = ""
     if not path:
         return None
+    blocked = await _action_block_reason(key, doc, actor)
+    if blocked:
+        return {"label": meta["label"], "method": meta["method"], "path": "",
+                "note_field": "", "body": {}, "blocked_reason": blocked}
     return {"label": meta["label"], "method": meta["method"], "path": path,
             "note_field": meta.get("note_field", ""),
             "body": dict(meta.get("body") or {})}
@@ -555,7 +595,8 @@ def _as_float(value: Any) -> float:
 
 async def queue_detail(key: str, entity_id: Optional[Any] = None,
                        limit: int = 12,
-                       allowed: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+                       allowed: Optional[Dict[str, List[str]]] = None,
+                       actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Isi SATU antrean beserta umur tunggu tiap dokumen — untuk papan khusus.
 
     KENAPA ADA: kartu "Paling Lama Menunggu" mencampur 33 antrean dan hanya memuat 5
@@ -597,7 +638,7 @@ async def queue_detail(key: str, entity_id: Optional[Any] = None,
             "amount": _as_float(_pick_path(d, extra.get("amount", []), 0)),
             "note": str(_pick_path(d, extra.get("note", []), "") or ""),
             "role": str(_pick_path(d, extra.get("role", []), "") or ""),
-            "action": _row_action(key, d, allowed),
+            "action": await _row_action(key, d, allowed, actor),
             "entity_id": d.get("entity_id", ""),
             "since": since, "days_waiting": days_waiting(since),
         })
@@ -616,7 +657,8 @@ async def queue_detail(key: str, entity_id: Optional[Any] = None,
 
 async def boards(keys: List[str], entity_id: Optional[Any] = None,
                  limit: int = 10,
-                 allowed: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+                 allowed: Optional[Dict[str, List[str]]] = None,
+                 actor: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Beberapa papan antrean sekaligus, dalam urutan yang diminta.
 
     Dipakai beranda pemilik & manajer. Satu pintu supaya papan baru cukup
@@ -625,7 +667,8 @@ async def boards(keys: List[str], entity_id: Optional[Any] = None,
     """
     out: List[Dict[str, Any]] = []
     for key in keys:
-        out.append(await queue_detail(key, entity_id, limit=limit, allowed=allowed))
+        out.append(await queue_detail(key, entity_id, limit=limit, allowed=allowed,
+                                      actor=actor))
     return out
 
 

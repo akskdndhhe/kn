@@ -85,6 +85,7 @@ export default function FinanceDesk({ currentUser, selectedEntity = "all", onOpe
           `/api/home/finance`), jadi mustahil berselisih dari Pusat Persetujuan. */}
       <WaitingBoardsStrip endpoint="/home/finance" entityId={selectedEntity}
         primaryKey="contra_bon_approve" testIdPrefix="fin-home"
+        onActed={load}
         onNavigate={(view) => onOpenDocument?.({ view })} />
 
       <section className="section-card">

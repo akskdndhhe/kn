@@ -50,21 +50,23 @@ async def home_sales(request: Request, entity_id: Optional[str] = Query(None),
     user = await current_user(request)
     target = sales_id if (sales_id and user["role"] in ("admin", "manager")) else user["id"]
     eid = await _own_entity(request, entity_id)
-    return await home_service.sales_home(target, eid, await _allowed(request))
+    return await home_service.sales_home(target, eid, await _allowed(request), user)
 
 
 @router.get("/admin")
 async def home_admin(request: Request, entity_id: Optional[str] = Query(None)) -> Dict[str, Any]:
     """Control Tower. admin (auto) + manager."""
     await require_role(request, ["manager"])
-    return await home_service.admin_home(entity_id, await _allowed(request))
+    return await home_service.admin_home(entity_id, await _allowed(request),
+                                         await current_user(request))
 
 
 @router.get("/manager")
 async def home_manager(request: Request, entity_id: Optional[str] = Query(None)) -> Dict[str, Any]:
     """Manager Home. admin (auto) + manager."""
     await require_role(request, ["manager"])
-    return await home_service.manager_home(None, entity_id, await _allowed(request))
+    return await home_service.manager_home(None, entity_id, await _allowed(request),
+                                           await current_user(request))
 
 
 @router.get("/warehouse")
@@ -78,7 +80,8 @@ async def home_warehouse(request: Request,
     adalah penugasan badan usaha, bukan nama peran.
     """
     eid = await _own_entity(request, entity_id, allow_combined=True)
-    return await home_service.warehouse_home(eid, await _allowed(request))
+    return await home_service.warehouse_home(eid, await _allowed(request),
+                                             await current_user(request))
 
 
 @router.get("/finance")
@@ -91,4 +94,5 @@ async def home_finance(request: Request,
     melihat angka yang sama (INV-HOME-01).
     """
     eid = await _own_entity(request, entity_id, allow_combined=True)
-    return await home_service.finance_home(eid, await _allowed(request))
+    return await home_service.finance_home(eid, await _allowed(request),
+                                           await current_user(request))

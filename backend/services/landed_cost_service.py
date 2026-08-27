@@ -168,17 +168,18 @@ async def apply_allocation_to_rolls(voucher_number: str, allocations: List[Dict[
             {"id": a["roll_id"]},
             {"_id": 0, "id": 1, "roll_no": 1, "unit_cost": 1, "base_unit_cost": 1,
              "length_remaining": 1, "owner_entity_id": 1, "entity_id": 1})
-        if before:
-            await roll_cost_history.record(
-                before, float(before.get("unit_cost") or 0) + float(a["per_unit"]),
-                "landed_cost_allocation", actor="voucher biaya masuk",
-                ref_type="landed_cost_voucher", ref_id="",
-                ref_number=voucher_number)
         res = await db.inventory_rolls.update_one(
             {"id": a["roll_id"]},
             {"$inc": {"unit_cost": a["per_unit"], "landed_cost_total": a["alloc_amount"]},
              "$set": {"updated_at": now_iso()},
              "$push": {"landed_cost_refs": voucher_number}})
+        # T7 DIBAYAR (2026-06c): jejak ditulis SESUDAH nilainya benar-benar berubah.
+        if before and res.modified_count:
+            await roll_cost_history.record(
+                before, float(before.get("unit_cost") or 0) + float(a["per_unit"]),
+                "landed_cost_allocation", actor="voucher biaya masuk",
+                ref_type="landed_cost_voucher", ref_id="",
+                ref_number=voucher_number)
         updated += res.modified_count
     return updated
 

@@ -31,7 +31,11 @@ REASONS: Dict[str, str] = {
     "interco_purchase_revalue": "Dinilai ulang ke harga beli internal (pembelian antar-PT)",
     "landed_cost_allocation": "Biaya masuk (landed cost) dialokasikan ke roll",
     "startup_backfill": "Migrasi startup mengisi HPP roll yang belum pernah dinilai",
-    "cycle_count_adjustment": "Penyesuaian hasil stock opname",
+    # T8 DIBAYAR (2026-06c): `cycle_count_adjustment` DIHAPUS dari registry — tidak
+    # ada satu pun penulisnya. Penyesuaian stock opname mengubah KUANTITAS roll
+    # (`apply_cycle_count_adjustment`), bukan HPP/unit-nya, jadi tak ada perubahan
+    # nilai per unit untuk dicatat di sini. Nama yang hidup tanpa penulis membuat
+    # sesi berikutnya percaya jejaknya sudah ada (drift kelas D2).
 }
 
 

@@ -356,15 +356,20 @@ async def _post_bill(bill_id: str, actor: Dict[str, Any], note: str = "") -> Dic
                   "posted_by": actor.get("name", ""), "posted_at": now_iso(), "updated_at": now_iso()},
          "$push": {"timeline": timeline_entry("posted", "Bill di-posting (AP diakui)", actor.get("name", ""), note)}},
         projection={"_id": 0}, return_document=ReturnDocument.AFTER)
-    await sync_po_billing(updated["po_id"])
+    # T4 DIBAYAR (2026-06c): dulu `updated["po_id"]` → `KeyError` (HTTP 500) untuk
+    # tagihan tanpa PO (mis. tagihan makloon). Tagihan tanpa PO memang tak punya
+    # billing PO untuk disinkronkan; itu keadaan SAH, bukan galat server.
+    _po_id = updated.get("po_id") or ""
+    if _po_id:
+        await sync_po_billing(_po_id)
     # S#2026-07-21 — Traceability: tautkan invoice supplier ke roll asal PO ini
     # (untuk kartu asal produk + retur presisi). Best-effort, non-blocking.
     try:
         billed_pids = [it.get("product_id") for it in (updated.get("items") or []) if it.get("product_id")]
-        if billed_pids:
+        if billed_pids and _po_id:
             await db.inventory_rolls.update_many(
                 {"$and": [
-                    {"$or": [{"po_id": updated["po_id"]}, {"acquired.ref_id": updated["po_id"]}]},
+                    {"$or": [{"po_id": _po_id}, {"acquired.ref_id": _po_id}]},
                     {"product_id": {"$in": billed_pids}},
                     {"$or": [{"vendor_bill_id": {"$in": ["", None]}}, {"vendor_bill_id": {"$exists": False}}]},
                 ]},

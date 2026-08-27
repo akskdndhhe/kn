@@ -1,0 +1,28 @@
+{
+  "summary": "Iterasi 255 — validasi ulang T1..T8 sesi 2026-06c (HANDOFF_AUDIT_SESI_2026_06C.md). Backend pytest baru /app/backend/tests/test_iter255_t1_t8.py — 18/18 PASS (dijalankan lewat REACT_APP_BACKEND_URL preview eksternal). Bukti kunci: (T1) GET /api/inventory/rolls/{id}/cost-history → 200 untuk kelima peran (finance, sales_admin, warehouse, manager, admin) dengan bentuk respons {roll_id, roll_no, unit_cost, count, history[]} — dulu 403 untuk finance karena hanya `wms.view`; kini require_any_permission([wms.view, accounting.view, product.view]). 404 tepat dikembalikan untuk roll yang tak ada. (T2) /api/home/finance & /api/home/warehouse — untuk semua baris ber-action pada papan vendor_bill, contra_bon_verify, contra_bon_approve, transfer, `action.note_field == ''` — sesuai ACTION_META (dialog Ya/Batal saja). (T3) POST /api/cycle-count/sessions/{id}/approve dengan body `{}` → 200 dan `approval_reason` = 'Disetujui sesuai hasil cycle count' (default Pydantic server terisi). (T4) POST /api/vendor-bills/{id}/approve untuk bill pending_approval TANPA po_id (disintesis untuk uji karena semua 6 bill tanpa po_id di seed sudah `posted`) → 200 (bill jadi `posted`), TIDAK 500 KeyError; fix `updated.get('po_id') or ''` + guard sync_po_billing dikonfirmasi. (T5) Papan special_order (admin home Control Tower) — baris menunggu punya `action={label,method,path,body}`; struktur `blocked_reason` didukung (bila terisi maka `path==''`); frontend WaitingQueueBoard.jsx men-disable tombol bila `action.blocked_reason` (kode diverifikasi). (T8) services.roll_cost_history.REASONS tak lagi memuat 'cycle_count_adjustment'; 4 alasan sah (interco_return_revalue, interco_purchase_revalue, landed_cost_allocation, startup_backfill) tetap ada. Regresi umum: /api/home/{admin,manager,warehouse,finance,sales} → 200 (signature baru menerima `actor`); login mengembalikan field `token`. UI (admin/ent_ksc): tombol `admin-home-special-order-act-sord_c378ef493cfc` muncul di Papan PO Custom → dialog konfirmasi dengan reason input opsional (special_order note_field='notes' by design). Kode WaitingQueueBoard.jsx line-level: askConfirm bila note_field kosong, askReason bila terisi — kontrak T2 dijamin lewat data note_field server yang sudah diverifikasi.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter255_t1_t8.py",
+    "/app/test_reports/pytest/iter255.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "roll_cost_history_endpoint memakai require_any_permission([wms.view, accounting.view, product.view]) — tepat untuk membuka lock T1 tanpa membocorkan izin lain; owner_entity_id tetap divalidasi lewat ctx.can_access.",
+    "approval_backlog_service.ACTION_META: note_field='' untuk transfer/vendor_bill/contra_bon_verify/contra_bon_approve (dialog Ya/Batal), 'notes'/'reason' hanya untuk special_order/sales_order/cycle_count/interco_return — sesuai kontrak T2.",
+    "vendor_bills._post_bill() sekarang `updated.get('po_id') or ''` + guard `if _po_id: sync_po_billing(...)` — path tagihan tanpa PO (makloon) aman dari KeyError.",
+    "cycle_count.CycleCountApprove.reason default='Disetujui sesuai hasil cycle count' — body {} otomatis mengisi (Pydantic), string kosong hanya bila klien MEMANG mengirim reason='' (klien FE sekarang tak mengirim field bila kosong per patch T3).",
+    "roll_cost_history.record() mengabaikan perubahan <0.005 — anti-bising & aman untuk migrasi/idempoten; T7/T8 kontrak `record() dipanggil hanya sesudah update_one modified_count>0` di interco_service/interco_return_service/landed_cost_service (dikonfirmasi lewat pembacaan kode; regresi e2e telah dicakup gate verify_data_integrity 242 PASS)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter255_t1_t8.py",
+    "/app/test_reports/iteration_255.json"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "verified (special-order dialog + kode WaitingQueueBoard.jsx)"},
+  "test_credentials": "admin@ / manager@ / finance@ / warehouse@ / salesadmin@ / sales@ · demo12345 (ent_ksc)",
+  "seed_data_creation": "python /app/seed_realistic.py && python /app/seed_e9_chain_demo.py --force dijalankan (menghadirkan 1 cycle_count 'submitted' + 1 special_order 'pending_approval'). T4 memakai bill sintesis (di-insert langsung ke db untuk kondisi pending_approval TANPA po_id) — di-cleanup setelah tes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "T1..T8 sesi 2026-06c HIJAU. Untuk uji regresi vendor_bill tanpa po_id, seed tidak menyediakan bill pending_approval tanpa po_id (semua 6 sudah posted) — pola aman: sintesis dokumen langsung ke db.vendor_bills lalu POST /api/vendor-bills/{id}/approve (pola dipakai test_t4). Home endpoints memakai kunci `waiting_boards` (BUKAN `boards`) — /home/finance & /home/warehouse memakai kunci itu; /home/admin & /home/manager memakai `approvals`+`waiting_boards`. Testids papan bisa-ditindak berpola `<homeBase>-<key>-act-<id>` (mis. admin-home-special-order-act-<id>). Dialog konfirmasi: `-confirm`, `-confirm-message`, `-confirm-reason` (hanya muncul bila ACTION_META.note_field != ''), `-confirm-cancel`, `-confirm-confirm`. Endpoint approve cycle_count menerima body {} → default reason server aktif.",
+  "rca of the issue": "N/A — semua temuan T1..T8 sesi 2026-06c terbukti terselesaikan."
+}

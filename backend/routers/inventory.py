@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from db import db
-from dependencies import require_permission, audit
+from dependencies import require_permission, require_any_permission, audit
 from core_utils import new_id, now_iso, DEFAULT_ENTITY_ID, strip_cost_fields
 from entity_scope import entity_ctx, resolve_list_scope, resolve_scope_ids
 from pagination import is_paged, get_page_params, build_search, merge_query, fetch_page, envelope
@@ -36,7 +36,12 @@ async def roll_cost_history_endpoint(roll_id: str, request: Request) -> Dict[str
     Rp 90.000" adalah membaca kode — dan itulah yang membuat selisih Rp 900.000 di
     buku CV Kanda Suka bertahan berbulan-bulan.
     """
-    await require_permission(request, "wms", "view")
+    # T1 DIBAYAR (2026-06c): izinnya dulu HANYA `wms.view`, sementara layar yang
+    # menampilkan data ini (Buku Besar → Rekonsiliasi Persediaan) dibuka peran
+    # **finance** yang tidak punya izin gudang → 403 dan buktinya mustahil terlihat.
+    # Nilai persediaan adalah urusan akuntansi, bukan hanya gudang.
+    await require_any_permission(request, [("wms", "view"), ("accounting", "view"),
+                                           ("product", "view")])
     roll = await db.inventory_rolls.find_one({"id": roll_id}, {"_id": 0})
     if not roll:
         raise HTTPException(status_code=404, detail="Roll tidak ditemukan")
