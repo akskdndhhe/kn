@@ -16,7 +16,7 @@ import re
 from fastapi import HTTPException
 from pymongo import ReturnDocument
 from db import db
-from core_utils import now_iso, new_id, DEFAULT_ENTITY_ID
+from core_utils import now_iso, new_id, to_cents, DEFAULT_ENTITY_ID
 from schemas import WAREHOUSE_PRIORITY
 from services import movement_label_service as _mlabel   # E5.3/E-9 — nama singkat badan usaha
 
@@ -1495,6 +1495,19 @@ async def create_inbound_roll(
     await _lots.recompute(_lot_doc["id"])
     await rebuild_balance(product_id, warehouse_id, owner_entity_id)
     return roll
+
+
+def roll_value_cents(roll: Dict[str, Any]) -> int:
+    """NILAI satu roll dalam SEN BULAT — SATU sumber untuk semua yang menghitung
+    nilai persediaan (rekonsiliasi GL, penjelas selisih, true-up saldo awal).
+
+    `length_remaining × (unit_cost | base_unit_cost)` dibulatkan SEKALI ke sen di
+    sini; penjumlahan lintas roll lalu dilakukan sebagai bilangan bulat sehingga
+    residu biner mustahil menumpuk (gap iterasi 256: Σ float meninggalkan Rp 0,01).
+    """
+    cost = float(roll.get("unit_cost") or roll.get("base_unit_cost") or 0)
+    length = float(roll.get("length_remaining") or 0)
+    return to_cents(length * cost)
 
 
 async def apply_cycle_count_adjustment(

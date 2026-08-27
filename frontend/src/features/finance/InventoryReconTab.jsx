@@ -106,21 +106,29 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
     }
   };
 
-  const postOpening = async () => {
+  const postOpening = async (includeRounding = false) => {
     // Berdampak UANG + STOK: menerbitkan jurnal true-up terhadap ekuitas saldo awal.
     const reason = await askReason({
-      title: "Posting saldo awal / true-up persediaan?",
-      message: "GL Persediaan (1-1300) akan disamakan dengan nilai fisik roll per badan usaha, "
-        + "dengan lawan akun 3-2900 Ekuitas Saldo Awal. Jurnalnya nyata dan masuk buku besar.",
+      title: includeRounding
+        ? "Rapikan sisa pembulatan sen?"
+        : "Posting saldo awal / true-up persediaan?",
+      message: includeRounding
+        ? "Sisa di bawah ambang pembulatan akan dinolkan dengan jurnal kecil terhadap "
+          + "3-2900 Ekuitas Saldo Awal. Jurnalnya nyata dan masuk buku besar."
+        : "GL Persediaan (1-1300) akan disamakan dengan nilai fisik roll per badan usaha, "
+          + "dengan lawan akun 3-2900 Ekuitas Saldo Awal. Jurnalnya nyata dan masuk buku besar.",
       reasonLabel: "Alasan / dasar penyesuaian",
-      reasonPlaceholder: "Contoh: hasil stock opname 31 Juli, selisih 12 roll grade B",
-      confirmLabel: "Posting True-Up",
+      reasonPlaceholder: includeRounding
+        ? "Contoh: merapikan sisa pembulatan sen warisan jurnal lama"
+        : "Contoh: hasil stock opname 31 Juli, selisih 12 roll grade B",
+      confirmLabel: includeRounding ? "Rapikan Sisa" : "Posting True-Up",
       testId: "recon-post-confirm",
     });
     if (reason === null) return;
     setPosting(true);
     try {
-      const res = await axios.post(`${API}/gl/inventory-opening-balance`, null, { params: { reason } });
+      const res = await axios.post(`${API}/gl/inventory-opening-balance`, null,
+        { params: includeRounding ? { reason, include_rounding: true } : { reason } });
       const n = res.data?.count || 0;
       onNotice(n > 0 ? `Saldo awal diposting: ${n} jurnal (${(res.data.posted || []).map((p) => p.journal_number).join(", ")}).` : "Tidak ada selisih — GL sudah sinkron dengan subledger.");
       await load();
@@ -149,7 +157,13 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
           : totalDiff > 0
             ? `GL Persediaan sinkron dengan subledger roll — sisa ${formatCurrency(data?.total_difference)} hanya pembulatan sen (di bawah ambang ${formatCurrency(tol)}).`
             : "GL Persediaan sinkron dengan subledger roll."}
-        <button data-testid="recon-post-opening" className="btn-primary text-[12px] py-1 px-3 ml-auto" onClick={postOpening} disabled={posting || !outOfSync}>
+        {!outOfSync && totalDiff > 0 && (
+          <button data-testid="recon-fix-rounding" className="secondary-button text-[11px] py-1 px-2 ml-auto"
+            onClick={() => postOpening(true)} disabled={posting}>
+            {posting ? "Memposting…" : "Rapikan sisa pembulatan"}
+          </button>
+        )}
+        <button data-testid="recon-post-opening" className={`btn-primary text-[12px] py-1 px-3 ${!outOfSync && totalDiff > 0 ? "" : "ml-auto"}`} onClick={() => postOpening(false)} disabled={posting || !outOfSync}>
           {posting ? "Memposting…" : "Posting Saldo Awal"}
         </button>
       </div>

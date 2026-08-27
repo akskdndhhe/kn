@@ -246,7 +246,8 @@ async def gl_inventory_drift_explain(request: Request,
 
 @router.post("/gl/inventory-opening-balance")
 async def gl_inventory_opening_balance(request: Request,
-                                       reason: str = Query("", max_length=500)) -> Dict[str, Any]:
+                                       reason: str = Query("", max_length=500),
+                                       include_rounding: bool = Query(False)) -> Dict[str, Any]:
     """Gelombang 1 F-3 — posting saldo awal / true-up persediaan (per entitas, idempotent harian).
 
     FASE P5 — `reason` (opsional di API, WAJIB di layar): true-up menyamakan GL Persediaan
@@ -260,7 +261,7 @@ async def gl_inventory_opening_balance(request: Request,
     """
     actor = await require_permission(request, "accounting", "manage")
     result = await gl_service.post_inventory_opening_balance(
-        actor.get("name", "system"), reason=reason)
+        actor.get("name", "system"), reason=reason, include_rounding=include_rounding)
     await audit(actor["name"], "inventory_opening_posted", "journal_entry", "batch",
                 {**result, "reason": (reason or "").strip()})
     return result

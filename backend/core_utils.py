@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Annotated, Any, Dict, Optional
 from pydantic import BeforeValidator
 import bcrypt
@@ -184,6 +185,31 @@ OptQtyDecimal = Annotated[Optional[float], BeforeValidator(
     lambda v: None if v in (None, "") else _qty_validator(v))]
 OptMoneyDecimal = Annotated[Optional[float], BeforeValidator(
     lambda v: None if v in (None, "") else _money_validator(v))]
+
+
+def to_cents(value: Any) -> int:
+    """Nominal rupiah → SEN BULAT (int, pembulatan setengah-ke-atas).
+
+    KENAPA ADA (gap iterasi 256/257): nilai persediaan dijumlahkan sebagai `float`,
+    dan Σ ribuan roll meninggalkan residu sen (nyata: subledger
+    582.368.600,007068 → dilaporkan 582.368.600,01 sementara GL 582.368.600,00).
+    Uang tidak boleh dijumlahkan dalam biner: satu-satunya cara residu itu HILANG
+    adalah menjumlahkannya sebagai bilangan bulat sen. Nilai per baris dibulatkan
+    SEKALI (di sini), lalu penjumlahannya eksak.
+    """
+    try:
+        d = Decimal(str(value if value not in (None, "") else 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return 0
+    return int((d * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def from_cents(cents: Any) -> float:
+    """SEN BULAT → rupiah berdesimal dua (pasangan `to_cents`)."""
+    try:
+        return float(Decimal(int(cents)) / 100)
+    except (InvalidOperation, TypeError, ValueError):
+        return 0.0
 
 
 def rupiah(value: Any) -> str:

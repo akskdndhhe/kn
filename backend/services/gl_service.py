@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from db import db
 from core_utils import (new_id, now_iso, next_doc_number, safe_doc, rupiah,
-                        DEFAULT_ENTITY_ID)
+                        to_cents, from_cents, DEFAULT_ENTITY_ID)
 from services import costing_service
 from services.customer_service import (
     _order_grand_total as order_grand_total,
@@ -2472,6 +2472,11 @@ async def gl_summary(scope: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 #: selisih (gap iterasi 256: layar memakai 0.01, penjelas memakai Rp 1).
 ROUNDING_TOLERANCE = 1.0
 
+#: NILAI satu roll dalam SEN BULAT — SSOT-nya di `services/roll_service` supaya
+#: rekonsiliasi, penjelas selisih, dan true-up saldo awal mustahil memakai rumus
+#: yang berbeda (gap iterasi 257: uang tidak boleh dijumlahkan sebagai float).
+from services.roll_service import roll_value_cents as _roll_value_cents  # noqa: E402
+
 PHYSICAL_ROLL_STATUSES = ["available", "reserved", "committed", "picked", "packed",
                           "quarantine", "hold"]
 
@@ -2493,18 +2498,18 @@ async def inventory_reconciliation() -> Dict[str, Any]:
         rolls = await db.inventory_rolls.find(
             {"owner_entity_id": e["id"], "status": {"$in": PHYSICAL_ROLL_STATUSES}},
             {"_id": 0, "length_remaining": 1, "unit_cost": 1, "base_unit_cost": 1}).to_list(100000)
-        sub = round(sum(float(r.get("length_remaining", 0) or 0) *
-                        float(r.get("unit_cost") or r.get("base_unit_cost") or 0)
-                        for r in rolls), 2)
+        sub_cents = sum(_roll_value_cents(r) for r in rolls)
+        sub = from_cents(sub_cents)
         led = await account_ledger(ACC_PERSEDIAAN, scope={"entity_id": e["id"]})
-        gl_bal = round(float((led or {}).get("balance", 0) or 0), 2)
-        diff = round(sub - gl_bal, 2)
+        gl_cents = to_cents(float((led or {}).get("balance", 0) or 0))
+        gl_bal = from_cents(gl_cents)
+        diff = from_cents(sub_cents - gl_cents)
         rows.append({"entity_id": e["id"],
                      "entity_name": e.get("legal_name") or e.get("name") or e["id"],
                      "subledger_value": sub, "gl_balance": gl_bal,
                      "difference": diff,
                      "rounding_only": bool(0 < abs(diff) <= ROUNDING_TOLERANCE)})
-    total = round(sum(r["difference"] for r in rows), 2)
+    total = from_cents(sum(to_cents(r["difference"]) for r in rows))
     return {"rows": rows,
             "total_difference": total,
             "rounding_tolerance": ROUNDING_TOLERANCE,
@@ -2557,17 +2562,21 @@ async def inventory_drift_explain(entity_id: str) -> Dict[str, Any]:
     #: berhenti di kategori.
     biggest_per_origin: Dict[str, Dict[str, Any]] = {}
     zero_cost_ref: Optional[Dict[str, Any]] = None
-    subledger = 0.0
+    subledger_cents = 0
     for r in rolls:
         via = str(((r.get("acquired") or {}).get("via")
                    or r.get("origin_type") or "tidak tercatat"))
         cost = float(r.get("unit_cost") or r.get("base_unit_cost") or 0)
         length = float(r.get("length_remaining", 0) or 0)
-        value = round(length * cost, 2)
-        subledger += value
-        slot = per_origin.setdefault(via, {"origin": via, "rolls": 0, "value": 0.0})
+        # Nilai roll = SEN BULAT dari SSOT yang sama dengan rekonsiliasi (roll_service).
+        value_cents = _roll_value_cents(r)
+        value = from_cents(value_cents)
+        subledger_cents += value_cents
+        slot = per_origin.setdefault(via, {"origin": via, "rolls": 0, "value": 0.0,
+                                           "value_cents": 0})
         slot["rolls"] += 1
-        slot["value"] = round(slot["value"] + value, 2)
+        slot["value_cents"] += value_cents
+        slot["value"] = from_cents(slot["value_cents"])
         if value > float((biggest_per_origin.get(via) or {}).get("value") or 0):
             biggest_per_origin[via] = {"roll": r, "value": value}
         if cost <= 0:
@@ -2592,9 +2601,10 @@ async def inventory_drift_explain(entity_id: str) -> Dict[str, Any]:
                 + float(line.get("debit") or 0) - float(line.get("credit") or 0), 2)
 
     led = await account_ledger(ACC_PERSEDIAAN, scope={"entity_id": entity_id})
-    gl_balance = round(float((led or {}).get("balance", 0) or 0), 2)
-    subledger = round(subledger, 2)
-    difference = round(subledger - gl_balance, 2)
+    gl_cents = to_cents(float((led or {}).get("balance", 0) or 0))
+    gl_balance = from_cents(gl_cents)
+    subledger = from_cents(subledger_cents)
+    difference = from_cents(subledger_cents - gl_cents)
 
     #: Asal barang → jenis jurnal yang SEHARUSNYA menemaninya. Dipakai hanya untuk
     #: menuduh "asal ini tidak punya jurnal pasangan", bukan untuk menghitung angka.
@@ -2729,7 +2739,8 @@ async def inventory_drift_explain(entity_id: str) -> Dict[str, Any]:
 
 async def post_inventory_opening_balance(actor_name: str = "system",
                                          tag: str = "",
-                                         reason: str = "") -> Dict[str, Any]:
+                                         reason: str = "",
+                                         include_rounding: bool = False) -> Dict[str, Any]:
     """True-up saldo GL Persediaan ke nilai subledger per entitas.
 
     Dr Persediaan / Cr Ekuitas Saldo Awal (atau sebaliknya bila GL > subledger).
@@ -2757,9 +2768,14 @@ async def post_inventory_opening_balance(actor_name: str = "system",
     recon = await inventory_reconciliation()
     posted: List[Dict[str, Any]] = []
     dasar = (reason or "").strip()
+    # `include_rounding` (2026-06c): sisa SEN warisan jurnal lama (≤ ambang
+    # pembulatan) sengaja TIDAK ikut true-up otomatis — supaya tombol utama tidak
+    # menerbitkan jurnal Rp 0,01 tanpa diminta. Pemilik bisa merapikannya secara
+    # SADAR lewat tombol "Rapikan sisa pembulatan" yang mengirim bendera ini.
+    minimum = 0.0 if include_rounding else EPS
     for r in recon["rows"]:
         diff = r["difference"]
-        if abs(diff) <= EPS:
+        if abs(diff) <= minimum:
             continue
         hari = now_iso()[:10]
         base = f"{r['entity_id']}:{hari}" + (f":{tag}" if tag else "")

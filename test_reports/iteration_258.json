@@ -1,0 +1,37 @@
+{
+  "summary": "Iterasi 258 — RANTAI BELI DARI NOL (WRITE E2E penuh via API) + NILAI ROLL PRESISI (SEN BULAT) + REGRESI integrity. HASIL: 14/15 tes PASS (1 SKIP diharapkan karena tidak ada residu pembulatan tersisa untuk dibersihkan). RANTAI: (a) POST /api/purchase-requisitions oleh salesadmin@ (submit_now=true) → 200, PR baru lahir dengan status auto-approved (di bawah ambang persetujuan) — dicatat sebagai perilaku benar; (b) POST /api/purchase-orders oleh admin@ (supplier eksternal NTT Weaving Co / non-badan-usaha, tax_mode='ppn', qty 10 @ Rp 50.000) → 200 PO baru; (c) POST /api/purchase-orders/{id}/approve — SoD terlihat sehat: bila admin sudah otomatis dapat, status transisi langsung, tidak ada 5xx; (d) inbound task lahir OTOMATIS untuk PO tersebut (ditemukan lewat GET /api/inbound/tasks), scan-receive 10 unit → 200, complete GR → 200, roll BARU muncul di /api/inventory-rolls terikat po_id; (e) POST /api/vendor-bills (po_id=..., billed_qty=10, price=50000, tax_mode=ppn, submit_now=true) → 200, VB status auto-posted; (f) VERIFIKASI JURNAL: /api/gl/journal untuk entitas ini menampilkan entri terkait PO/GR/VB semuanya seimbang (|td-tc|<0.01), TRIAL BALANCE ent_ksc seimbang (|td-tc|<Rp1). NILAI ROLL PRESISI: GET /api/gl/inventory-reconciliation memberi `rounding_tolerance=1.0`, `reconciled=true`, dan untuk KEDUA entitas: ent_ksc subledger=583.368.600,01 gl_balance=583.368.600,01 difference=0,00; ent_kanda subledger=1.369.000,00 gl_balance=1.369.000,00 difference=0,00 — SUBLEDGER dan GL sama persis karena sekarang keduanya dihitung sebagai SEN BULAT (int) via `roll_value_cents()` SSOT di roll_service dan `to_cents/from_cents` di core_utils. GET /api/gl/inventory-drift-explain?entity_id={eid} memberi subledger_value, gl_balance, dan difference yang IDENTIK dengan angka rekonsiliasi (dua layar TIDAK berbeda). Sesudah rantai beli menciptakan roll baru + jurnal baru, rekonsiliasi TIDAK memunculkan selisih baru di luar ambang Rp 1 (dua entitas total_difference=0). POST /api/gl/inventory-opening-balance TANPA include_rounding memposting 0 entri (count=0) saat selisih hanya sen — GUARD BENAR. REGRESI: `python /app/scripts/verify_data_integrity.py` PASS 242 / FAIL 0 / WARN 0 sesudah semua write. Tidak ada endpoint yang menjawab 5xx sepanjang rantai. SMOKE FRONTEND: admin@ login + scope-pick-ent_ksc + Control Tower render sempurna (25 antrean persetujuan, 8 KPI eksekutif) tanpa error konsol.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter258_purchase_e2e_and_recon.py",
+    "/app/test_reports/pytest/iter258.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "gl_service.py:2478 mengimpor `roll_value_cents` dari services/roll_service — SSOT untuk NILAI ROLL DALAM SEN BULAT (int) benar-benar tunggal. Dipakai di inventory_reconciliation() (baris 2501) dan inventory_drift_explain() sehingga dua layar TIDAK MUNGKIN berbeda. Bukti empiris: recon.subledger == drift.subledger ke sen (ent_ksc 583.368.600,01 identik).",
+    "core_utils.to_cents/from_cents (line 189) dipakai konsisten di gl_service.inventory_reconciliation untuk `sub`, `gl_bal`, dan `diff` — HASILNYA total_difference=0 exact tanpa residu float. Ini menutup RCA iter 256 (drift Rp 0.01) TANPA menyembunyikan selisih sebenarnya (masih dilaporkan bila > Rp 1).",
+    "post_inventory_opening_balance(include_rounding=False) dengan diff hanya sen memposting 0 entri (terbukti di test_opening_balance_no_post_without_flag). Ini sesuai design: sen dianggap noise di bawah ambang; hanya include_rounding=True yang membersihkan ke ekuitas 3-2900.",
+    "SoD ringan: salesadmin@ dengan submit_now=True → PR langsung approved (auto, di bawah threshold approval rules). Tidak ada 5xx dan alurnya konsisten. Bila ingin menegakkan SoD ketat untuk PR juga di jalur cepat, tambahkan approval_rules dengan min_amount rendah. Bukan bug — perilaku bisnis benar.",
+    "PO dengan tax_mode='ppn' + supplier non-internal + qty*price di bawah threshold approval → auto-approved. Sistem konsisten memposting GR-IR / Persediaan / VAT-In / AP secara berimbang (trial balance ent_ksc tetap seimbang setelah 3 dokumen baru).",
+    "Guard 409 di POST /api/purchase-orders: bila supplier ternyata badan usaha di dalam grup, pesan Indonesia sangat menuntun ke fitur 'Antar Entitas' — pengalaman pemakai bagus (bukan 5xx senyap)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter258_purchase_e2e_and_recon.py",
+    "/app/test_reports/iteration_258.json",
+    "/app/test_reports/pytest/iter258.xml"
+  ],
+  "success_rate": {"backend": "100% — 14/15 PASS, 1 SKIP (tak ada residu pembulatan untuk dibersihkan); 0 HTTP 5xx sepanjang rantai; integrity 242/242 PASS", "frontend": "100% — login + scope-pick + Control Tower render tanpa error"},
+  "test_credentials": "admin@ / manager@ / salesadmin@ / warehouse@ / finance@ · demo12345",
+  "seed_data_creation": "Menghasilkan dokumen baru dari nol untuk uji WRITE E2E (dokumen ini boleh tetap ada per instruksi): 1 PR baru (auto-approved), 1 PO baru (auto-approved), 1 WMS inbound task (menjadi qc_pending atau completed tergantung config qc_on_receipt), ≥1 roll baru di inventory_rolls terikat po_id, 1 Vendor Bill baru (auto-posted). Nomor dokumen disimpan di state test file (lihat log pytest); dapat dilihat via GET /api/purchase-requisitions?status=approved dan /api/purchase-orders?status=approved.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "GAP-257 (nilai roll presisi) SUDAH TERTUTUP end-to-end: inventory_reconciliation() dan inventory_drift_explain() sekarang memakai `roll_value_cents()` SSOT dari roll_service.py (baris 1500) dan menghitung difference sebagai (sub_cents - gl_cents) via to_cents/from_cents — recon+drift IDENTIK sampai sen. Rantai beli dari nol JALAN LENGKAP (PR → PO → GR → VB → GL) tanpa 5xx. Fitur 'Rapikan sisa pembulatan' via POST /api/gl/inventory-opening-balance?include_rounding=true SUDAH ADA dan guard-nya benar (include_rounding=false + diff hanya sen ⇒ 0 posted). Test skip pada test_opening_balance_with_rounding_flag terjadi karena SUDAH tidak ada residu (subledger.01==gl.01) — perilaku diharapkan. Untuk iterasi berikutnya, fokus flow lain (order-to-cash, produksi, HRD) bila masih ada.",
+  "rca of the issue": "N/A — semua gap iterasi 255-257 tertutup. Verifikasi write E2E dan presisi roll di iter 258 hijau."
+}
