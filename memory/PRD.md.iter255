@@ -1,12 +1,12 @@
-# Iterasi 255 — Eksekusi temuan audit T1–T8 (sesi 2026-06c)
+# Iterasi 255–257 — Eksekusi temuan audit T1–T8 + sapuan flow besar
 
 Masalah asal (pemilik): lanjutkan development repo `walsaksajanaba/kn`; audit sebelumnya
 menulis 10 temuan tanpa eksekusi. Keputusan pemilik: **kerjakan semua T1–T8**, validasi
-wiring API/DB/flow yang berhubungan, acuan lingkungan **preview**. Fitur "Sengketa Bisa
-Diputus" DITUNDA atas permintaan pemilik.
+wiring API/DB/flow terkait, acuan lingkungan **preview**. Lalu: **uji semua flow besar
+apakah ada gap**. Fitur "Sengketa Bisa Diputus" DITUNDA atas permintaan pemilik.
 
-## Yang dikerjakan (2026-06, sesi lanjutan)
-- T1 izin endpoint riwayat nilai roll + galat bukti tidak lagi ditelan.
+## Iterasi 255 — T1–T8 dikerjakan (18/18 PASS)
+- T1 izin endpoint riwayat nilai roll (`require_any_permission`) + galat bukti tidak ditelan.
 - T2 dialog papan tak lagi meminta catatan yang tak punya tempat penyimpanan.
 - T3 catatan kosong tidak menimpa alasan bawaan stock opname.
 - T4 `vendor-bills/{id}/approve` tidak lagi 500 untuk tagihan tanpa PO.
@@ -15,9 +15,25 @@ Diputus" DITUNDA atas permintaan pemilik.
 - T7 jejak nilai roll ditulis sesudah pembaruan berhasil.
 - T8 alasan tanpa penulis dihapus dari registry.
 
+## Iterasi 256 — sapuan luas semua flow besar (53/53 PASS, 0 HTTP 5xx)
+Procure-to-pay · order-to-cash · WMS · kontrabon · interco · retur · GL/closing ·
+produksi/makloon · R&D · HRD · isolasi entitas & lini. Satu gap ditemukan.
+
+## Iterasi 257 — gap 256 ditutup & diverifikasi
+GAP-256: nilai roll (float) menyisakan residu sen (0,01) dan layar Rekonsiliasi
+Persediaan memakai ambang sendiri (0,01) sementara penjelas selisih memakai Rp 1 —
+dua definisi "sinkron" untuk satu angka. Perbaikan: `ROUNDING_TOLERANCE = 1.0` di
+`services/gl_service.py` sebagai SATU sumber, dikirim ke layar
+(`rounding_tolerance`, `reconciled`, `rounding_only` per baris); layar memakainya untuk
+bilah status, warna sel, penanda "pembulatan", dan tombol true-up.
+Verifikasi: integritas 242 PASS/0 FAIL (pra & pasca mutasi), layar hijau + tombol mati.
+
 ## Sisa backlog
+- P1: "Sengketa Bisa Diputus" — terima/tolak/potong sebagian di baris kontrabon.
 - P1: T9 backfill riwayat nilai roll (hanya dari sumber nyata, ditandai
   `reason: "backfill_dari_jejak_dokumen"`).
 - P1: T10 kunci berkas `memory/.poc.lock` supaya POC & pemeriksa lain tak berbenturan.
-- P1: "Sengketa Bisa Diputus" — terima/tolak/potong sebagian langsung di baris kontrabon.
+- P2: WRITE E2E dari nol (POST PR baru → PO → GRN → VB → posting) belum diuji penuh;
+  yang diuji sejauh ini transisi persetujuan pada dokumen seed.
 - P2: pra-cek T5 diperluas ke tahap berjenjang lain + mode "Semua Entitas".
+- P3: 2× 403 di konsol pasca-login admin (tidak tereproduksi di bundle terbaru).

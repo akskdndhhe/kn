@@ -2468,12 +2468,24 @@ async def gl_summary(scope: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 #  Gelombang 1 F-3 — Rekonsiliasi persediaan (subledger rolls vs GL) + saldo awal
 # ═════════════════════════════════════════════════════════════════════════════
 
+#: Ambang PEMBULATAN SEN rekonsiliasi persediaan — SATU angka untuk layar & penjelas
+#: selisih (gap iterasi 256: layar memakai 0.01, penjelas memakai Rp 1).
+ROUNDING_TOLERANCE = 1.0
+
 PHYSICAL_ROLL_STATUSES = ["available", "reserved", "committed", "picked", "packed",
                           "quarantine", "hold"]
 
 
 async def inventory_reconciliation() -> Dict[str, Any]:
-    """Banding nilai persediaan fisik (Σ roll × unit_cost) vs saldo GL 1-1300 per entitas."""
+    """Banding nilai persediaan fisik (Σ roll × unit_cost) vs saldo GL 1-1300 per entitas.
+
+    AMBANG PEMBULATAN (2026-06c, gap iterasi 256): nilai roll disimpan sebagai float,
+    jadi Σ-nya bisa meninggalkan residu sen (nyata: subledger 582.368.600,01 vs GL
+    582.368.600,00). `inventory_drift_explain()` sudah menggolongkan selisih ≤ Rp 1
+    sebagai "pembulatan sen" — layar HARUS memakai ambang yang SAMA, bukan ambang
+    sendiri (dulu 0.01 di layar): satu angka tidak boleh punya dua definisi "sinkron"
+    (INV-HOME-01). Karena itu ambangnya dikirim dari sini.
+    """
     ents = await db.business_entities.find(
         {}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(100)
     rows: List[Dict[str, Any]] = []
@@ -2486,12 +2498,17 @@ async def inventory_reconciliation() -> Dict[str, Any]:
                         for r in rolls), 2)
         led = await account_ledger(ACC_PERSEDIAAN, scope={"entity_id": e["id"]})
         gl_bal = round(float((led or {}).get("balance", 0) or 0), 2)
+        diff = round(sub - gl_bal, 2)
         rows.append({"entity_id": e["id"],
                      "entity_name": e.get("legal_name") or e.get("name") or e["id"],
                      "subledger_value": sub, "gl_balance": gl_bal,
-                     "difference": round(sub - gl_bal, 2)})
+                     "difference": diff,
+                     "rounding_only": bool(0 < abs(diff) <= ROUNDING_TOLERANCE)})
+    total = round(sum(r["difference"] for r in rows), 2)
     return {"rows": rows,
-            "total_difference": round(sum(r["difference"] for r in rows), 2),
+            "total_difference": total,
+            "rounding_tolerance": ROUNDING_TOLERANCE,
+            "reconciled": abs(total) <= ROUNDING_TOLERANCE,
             "as_of": now_iso()}
 
 
@@ -2661,7 +2678,7 @@ async def inventory_drift_explain(entity_id: str) -> Dict[str, Any]:
                     "Besar akun 1-1300.",
             "ref": {"kind": "account", "id": ACC_PERSEDIAAN, "number": ACC_PERSEDIAAN,
                     "q": ACC_PERSEDIAAN, "view": "general-ledger"}})
-    if 0 < abs(difference) <= 1:
+    if 0 < abs(difference) <= ROUNDING_TOLERANCE:
         suspects.append({
             "kind": "pembulatan", "value": difference,
             "label": "Selisihnya di bawah Rp 1 — pembulatan sen",
@@ -2669,7 +2686,7 @@ async def inventory_drift_explain(entity_id: str) -> Dict[str, Any]:
     # Selisih yang MASIH belum tertunjuk tidak boleh berakhir tanpa arah: sebutkan
     # roll yang paling baru masuk supaya ada dokumen konkret untuk diperiksa.
     tertunjuk = {"tanpa_jurnal", "nilai_cocok_selisih", "roll_tanpa_hpp", "pembulatan"}
-    if abs(difference) > 1 and not any(s["kind"] in tertunjuk for s in suspects):
+    if abs(difference) > ROUNDING_TOLERANCE and not any(s["kind"] in tertunjuk for s in suspects):
         terbaru = sorted(
             ({"roll_no": r.get("roll_no") or "(tanpa nomor)",
               "via": ((r.get("acquired") or {}).get("via")

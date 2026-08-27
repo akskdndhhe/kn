@@ -133,16 +133,23 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
   };
 
   const totalDiff = Math.abs(data?.total_difference || 0);
+  // Ambang "sinkron" datang dari SERVER (2026-06c, gap iterasi 256): layar dulu
+  // memakai 0.01 sementara penjelas selisih menggolongkan ≤ Rp 1 sebagai pembulatan
+  // sen — dua definisi "sinkron" untuk satu angka.
+  const tol = data?.rounding_tolerance ?? 1;
+  const outOfSync = totalDiff > tol;
   if (loading) return <p className="text-[12px] text-[#8E8E93] py-6 text-center" data-testid="recon-loading">Memuat rekonsiliasi…</p>;
 
   return (
     <div data-testid="inventory-recon-tab">
-      <div className={`mb-3 rounded-md border text-[12px] px-3 py-2 flex items-center gap-2 ${totalDiff > 0.01 ? "bg-[#FDF3E7] border-[#F0D9B8] text-[#B9770E]" : "bg-[#E6F6EC] border-[#BDE5CC] text-[#1B7F4B]"}`} data-testid="recon-status-banner">
-        {totalDiff > 0.01 ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-        {totalDiff > 0.01
+      <div className={`mb-3 rounded-md border text-[12px] px-3 py-2 flex items-center gap-2 ${outOfSync ? "bg-[#FDF3E7] border-[#F0D9B8] text-[#B9770E]" : "bg-[#E6F6EC] border-[#BDE5CC] text-[#1B7F4B]"}`} data-testid="recon-status-banner">
+        {outOfSync ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+        {outOfSync
           ? `Selisih total GL vs fisik: ${formatCurrency(data?.total_difference)} — posting saldo awal / telusuri penyebabnya.`
-          : "GL Persediaan sinkron dengan subledger roll."}
-        <button data-testid="recon-post-opening" className="btn-primary text-[12px] py-1 px-3 ml-auto" onClick={postOpening} disabled={posting || totalDiff <= 0.01}>
+          : totalDiff > 0
+            ? `GL Persediaan sinkron dengan subledger roll — sisa ${formatCurrency(data?.total_difference)} hanya pembulatan sen (di bawah ambang ${formatCurrency(tol)}).`
+            : "GL Persediaan sinkron dengan subledger roll."}
+        <button data-testid="recon-post-opening" className="btn-primary text-[12px] py-1 px-3 ml-auto" onClick={postOpening} disabled={posting || !outOfSync}>
           {posting ? "Memposting…" : "Posting Saldo Awal"}
         </button>
       </div>
@@ -163,7 +170,7 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
                 <td className="py-2 pr-3 font-semibold">{r.entity_name}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(r.subledger_value)}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{formatCurrency(r.gl_balance)}</td>
-                <td className={`py-2 pr-3 text-right tabular-nums font-bold ${Math.abs(r.difference) > 0.01 ? "text-[#C0392B]" : "text-[#1B7F4B]"}`} data-testid={`recon-diff-${r.entity_id}`}>{formatCurrency(r.difference)}</td>
+                <td className={`py-2 pr-3 text-right tabular-nums font-bold ${Math.abs(r.difference) > tol ? "text-[#C0392B]" : "text-[#1B7F4B]"}`} data-testid={`recon-diff-${r.entity_id}`}>{formatCurrency(r.difference)}{r.rounding_only ? <span className="ml-1 text-[10px] font-semibold text-[#8E8E93]" data-testid={`recon-rounding-${r.entity_id}`}>pembulatan</span> : null}</td>
                 <td className="py-2 pr-3 text-right">
                   <button type="button" className="secondary-button text-[11px] py-1 px-2"
                     onClick={() => loadExplain(r.entity_id)}
@@ -191,7 +198,7 @@ export default function InventoryReconTab({ refreshKey, onError, onNotice, onCha
           <p className="mb-2 text-[12px] font-bold text-[#1C1C1E]">
             {explain.entity_name} — fisik {formatCurrency(explain.subledger_value)} vs GL{" "}
             {formatCurrency(explain.gl_balance)} · selisih{" "}
-            <span className={Math.abs(explain.difference) > 0.01 ? "text-[#C0392B]" : "text-[#1B7F4B]"}>
+            <span className={Math.abs(explain.difference) > tol ? "text-[#C0392B]" : "text-[#1B7F4B]"}>
               {formatCurrency(explain.difference)}
             </span>
           </p>

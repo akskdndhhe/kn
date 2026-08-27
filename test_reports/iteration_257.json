@@ -1,0 +1,37 @@
+{
+  "summary": "Iterasi 257 — Verifikasi PERBAIKAN GAP iterasi 256 (ambang pembulatan Rp 1 sebagai satu sumber di gl_service.ROUNDING_TOLERANCE) + WRITE E2E ringkas + integrity sweep. HASIL: (A) GAP-256 FIX HIJAU end-to-end. GET /api/gl/inventory-reconciliation kini mengirim `rounding_tolerance=1.0`, `reconciled=true`, dan `rounding_only=true` untuk ent_ksc (0.01 residu). Layar Rekonsiliasi Persediaan (Keuangan → Buku Besar & CoA → tab Rekonsiliasi Persediaan) menunjukkan: (a) bilah status HIJAU 'GL Persediaan sinkron dengan subledger roll — sisa Rp 0 hanya pembulatan sen (di bawah ambang Rp 1)' dengan tombol 'Posting Saldo Awal' MATI (disabled=true) ✅, (b) baris ent_ksc menampilkan penanda 'pembulatan' dengan warna hijau (rgb 27,127,75) ✅, (c) tombol 'Kenapa berselisih?' membuka panel yang berisi kalimat 'Selisihnya di bawah Rp 1 — pembulatan sen' → kind='pembulatan' terklasifikasi benar ✅. Baris ent_kanda menampilkan selisih Rp 0 (rounding_only=false), sesuai. (B) WRITE E2E smoke: PR/PO/SO/Transfer approve semua HTTP 200 tanpa 5xx (pr_d746e281a6ba PR-00002 pending_approval→approved; po_010 PO-00010 waiting_approval→approved; so_007 SO-0007 waiting_approval→approved; trn_seed_003 KSC/TRF-00003 waiting_approval→approved). Contra-bon approve (cbn_3c2940bd2a09 status=submitted) memberi 403 dengan pesan menuntun 'Persetujuan hanya untuk kontrabon Terverifikasi (sekarang: Diajukan)' — bukan 5xx, artinya state machine mensyaratkan verify dulu (perilaku benar). (C) INTEGRITAS: `python /app/scripts/verify_data_integrity.py` dijalankan tersendiri dua kali (pra-mutasi dan pasca-mutasi) → keduanya PASS 242 / FAIL 0 / WARN 0. WRITE E2E MENDALAM (build PR baru → PO → GRN → VB → post GL end-to-end via API mentah) TIDAK dilakukan penuh dari nol karena payload berlapis dan seed sudah menyediakan rantai 3-rantai demo yang sudah divalidasi invarian L1..L5. Sebagai gantinya, transisi status kritis di setiap dokumen aktif diuji dan integrity re-verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Login admin (halaman pertama Beranda)", "issue": "Konsol masih mencatat 2× 'Failed to load resource: 403' segera pasca-login sebelum scope dipilih (temuan lama iterasi 256, non-blocker, layar render normal). Guard prefetch endpoint scope-required sampai badan usaha dipilih akan menghilangkan pesan.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/iter256.xml",
+    "/app/backend/tests/test_iter256_e2e_flow_sweep.py"
+  ],
+  "action_items": [
+    "RENDAH (dari iter 256) — Hilangkan 2× 403 di konsol pasca-login admin (guard prefetch endpoint scope-required)."
+  ],
+  "critical_code_review_comments": [
+    "gl_service.py:2471 ROUNDING_TOLERANCE=1.0 kini SATU sumber dipakai baik oleh inventory_reconciliation() (baris 2506, 2510-2511) maupun inventory_drift_explain() (baris 2681). Layar InventoryReconTab.jsx:139 mengambil `data.rounding_tolerance ?? 1` — TIDAK ADA lagi dua definisi 'sinkron'. GAP-256 tertutup rapi.",
+    "InventoryReconTab.jsx:201 masih menghardcode `0.01` untuk menentukan warna 'selisih' di header penjelas (`Math.abs(explain.difference) > 0.01`). KOMENTAR RINGAN: harus juga membaca `tol` dari server untuk konsisten sepenuhnya — sekarang cuma dua warna sanity, bukan bug fungsional, tetapi bila ambang server berubah, header penjelas tetap merah palsu untuk 0.02..0.99. Sarankan ganti `> 0.01` → `> tol`.",
+    "Semua transisi status kritis (PR/PO/SO/Transfer approve) mengembalikan 200 dan payload lengkap; contra-bon approve dengan status 'submitted' dijawab 403 dengan pesan yang menuntun (bukan 5xx) — state machine sehat.",
+    "verify_data_integrity.py: 242 invarian (L1..L5, RND, CLS, IC, CB, dll.) PASS setelah mutasi persetujuan; roll-as-SSOT, IC-AR==IC-AP, PPN in==PPN out, dan number-series uniqueness terjaga."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_257.json"
+  ],
+  "success_rate": {"backend": "100% — 0 HTTP 5xx pada mutasi kritis; integrity 242/242 PASS", "frontend": "100% — banner/tombol/rounding-mark/explain-kind semua benar"},
+  "test_credentials": "admin@ / finance@ · demo12345",
+  "seed_data_creation": "Tidak membuat seed baru. Menggunakan seed_realistic.py + seed_e9_chain_demo.py. Mutasi persetujuan mengubah state 4 dokumen seed (PR-00002, PO-00010, SO-0007, KSC/TRF-00003) dari 'menunggu' → 'approved' — konsisten dengan alur bisnis dan tidak menimbulkan drift (integrity 242/242 tetap PASS pasca-mutasi).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "GAP-256 (drift Rp 0.01 di layar Rekonsiliasi Persediaan) SUDAH TERTUTUP end-to-end. Untuk iterasi berikutnya, uji WRITE E2E MENDALAM dari nol (POST PR baru → convert PO → GRN → VB → posting) untuk memvalidasi bentuk payload lengkap, bukan hanya transisi persetujuan. Perhatikan: (1) contra-bon butuh 'verify' sebelum 'approve' (verifikasi harus dari peran yang sesuai); (2) status 'submitted' pada contra-bon = 'Diajukan' (belum 'Terverifikasi'); (3) InventoryReconTab.jsx:201 masih hardcode 0.01 di header penjelas — sarankan pakai `tol` juga (kosmetis). Iterasi ini TIDAK menjalankan POC/gate bersamaan (diikuti aturan main-agent).",
+  "rca of the issue": "N/A — GAP-256 sudah diperbaiki main-agent. RCA gap-256 (sisa arsip): float64 di rolls[*].unit_cost*length_remaining menghasilkan residu sen; layar dulu memakai ambang 0.01 sementara backend menggolongkan ≤ Rp 1 sebagai pembulatan. Solusi yang diambil main-agent: konstanta ROUNDING_TOLERANCE=1.0 di gl_service.py dikirim ke frontend via response payload dan dipakai frontend untuk `outOfSync`, warna sel, dan penanda 'pembulatan'. Verified in this iteration."
+}

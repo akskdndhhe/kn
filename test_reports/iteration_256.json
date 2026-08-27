@@ -1,0 +1,44 @@
+{
+  "summary": "Iterasi 256 — SAPUAN LUAS end-to-end SEMUA flow besar (procure-to-pay, order-to-cash, WMS, kontrabon, interco, retur, GL/finance, closing, produksi/makloon, R&D, HRD, isolasi entitas, papan persetujuan) untuk mencari GAP BARU (tidak mengulang T1..T8 iter 255). Backend: 53/53 PASS pytest /app/backend/tests/test_iter256_e2e_flow_sweep.py — TIDAK ADA HTTP 5xx pada seluruh endpoint listing/summary yang diuji lintas 10 peran. Frontend smoke test (admin + finance): login → scope-pick ent_ksc → Control Tower (28 antrean persetujuan) & Meja Finance (8 perlu ditindak, papan Kontrabon/Faktur Pajak/Kwitansi AR) render sempurna tanpa layar putih/JS-error. Isolasi entitas terbukti: sales3@ (home CV Kanda Suka) → GET /sales-orders?X-Entity-Id=ent_kanda mengembalikan hanya ent_kanda; percobaan X-Entity-Id=ent_ksc dijawab 403 (bukan 500). Mode 'Semua Entitas' aksi tulis (POST /purchase-requisitions) tidak 5xx. FASE P (manager.printing@) papan PO tidak 5xx. Home idempoten. TEMUAN BARU (SEDANG): (G1) GL /api/gl/inventory-reconciliation menunjukkan drift Rp 0.01 di ent_ksc (subledger 582.368.600,01 vs GL 582.368.600,00; total_difference 0.01) — rounding titik-mengambang antara Σ nilai roll dan GL 1-1300. (G2) Frontend memuat 2× resource 403 (bukan blocker; UI menampilkan dengan baik) — konsol menandai 'Failed to load resource: 403' saat login admin masuk. Tidak ada 5xx, tidak ada tombol mati tanpa alasan, tidak ada layar putih. Beranda salesadmin/designer TIDAK punya endpoint /api/home/{role} tersendiri (hanya admin, manager, warehouse, finance, sales) — didokumentasikan sebagai gap kontrak API (bukan bug; frontend memakai routing lain).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/gl/inventory-reconciliation", "issue": "Drift Rp 0.01 (rounding titik-mengambang) di ent_ksc: subledger 582368600.01 vs GL 582368600.00. Roll-as-SSOT terlihat menyimpan nilai roll sebagai float; jumlah Σ menghasilkan .01 residu. Sarannya: kuantisasi ke 2 desimal di services/gl_service.inventory_reconciliation() dan/atau pakai Decimal saat menjumlah, atau tampilkan 'diff <= Rp 1 dianggap nol' dengan penjelasan di layar."},
+      {"endpoint": "/api/home/{salesadmin,designer}", "issue": "404 — tidak ada endpoint home per peran untuk salesadmin dan designer. Konsistensi kontrak API: peran-peran lain punya /api/home/{role}. Tambahkan atau dokumentasikan pemetaan (mis. salesadmin→/api/home/sales)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Login admin", "issue": "Konsol mencatat 2× 'Failed to load resource: 403' segera setelah login (sebelum pilih scope). Kemungkinan besar prefetch tanpa X-Entity-Id ke endpoint yang butuh scope. Bukan blocker — layar tetap render — tapi 'galat ditelan tanpa pesan' halus. Sebaiknya prefetch di-guard sampai scope dipilih.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter256_e2e_flow_sweep.py",
+    "/app/test_reports/pytest/iter256.xml"
+  ],
+  "action_items": [
+    "SEDANG — Perbaiki drift Rp 0.01 di /api/gl/inventory-reconciliation (kuantisasi Decimal atau round(x,2) pada agregat subledger di services/gl_service.py inventory_reconciliation()).",
+    "RENDAH — Sediakan /api/home/salesadmin dan /api/home/designer (atau alias yang mengarah ke /api/home/sales) untuk konsistensi kontrak.",
+    "RENDAH — Cegah prefetch endpoint yang butuh scope sebelum user memilih badan usaha (menghilangkan 2× 403 di konsol pasca-login admin)."
+  ],
+  "critical_code_review_comments": [
+    "Roll-as-SSOT: inventory_reconciliation() melakukan agregat Σ nilai_roll dari koleksi rolls; float64 mengakibatkan drift 0.01. Gunakan Decimal atau round(sum, 2) sebelum dibandingkan dengan GL balance. Ini juga akan menghindarkan tuduhan selisih palsu di layar Rekonsiliasi Persediaan (InventoryReconTab).",
+    "permissions_config.py:319 — 'finance' SENGAJA tidak memiliki vendor_bill.view (keputusan pemilik E8.1b, sisi HUTANG milik manager/admin). Ini adalah desain, bukan bug. Layar Meja Finance TIDAK memerlukan endpoint /vendor-bills, sudah benar.",
+    "home.py hanya mendaftarkan 5 endpoint peran (admin, manager, warehouse, finance, sales). Peran salesadmin & designer memakai jalur non-endpoint. Perlu didokumentasikan di INVARIANTS.md agar audit berikutnya tidak salah baca.",
+    "Semua endpoint listing besar (26 modul: PR, PO, VB, GRN, SO, deliveries, tax_invoices, AR, WMS, transfers, cycle_count, outbound, contra_bons, interco, sales/purchase returns, closing, financial statements, production, makloon, qc, design_requests, design_gallery, hr_leave, hr_payroll) balasannya < 500 untuk peran-peran resmi — health-signal solid."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter256_e2e_flow_sweep.py",
+    "/app/test_reports/iteration_256.json",
+    "/app/test_reports/pytest/iter256.xml"
+  ],
+  "success_rate": {"backend": "100% (53/53) sapuan luas — 0 HTTP 5xx", "frontend": "smoke OK admin + finance; 2× 403 non-blocker di konsol"},
+  "test_credentials": "admin@ / manager@ / finance@ / warehouse@ / salesadmin@ / sales@ / sales3@ / designer@ / manager.printing@ / dewi.printing@ · demo12345",
+  "seed_data_creation": "Tidak membuat seed baru; memakai data hasil seed_realistic.py + seed_e9_chain_demo.py dari iterasi sebelumnya. Uji create-write hanya menembakkan POST /purchase-requisitions dengan lines kosong pada mode Semua Entitas untuk memverifikasi 4xx (bukan 5xx).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "SAPUAN LUAS iter 256 selesai — HIJAU untuk seluruh flow besar (listing/summary/home) tanpa 5xx. Satu-satunya temuan riil untuk main-agent: drift Rp 0.01 di /api/gl/inventory-reconciliation ent_ksc (float rounding). Setelah main-agent memperbaiki, cukup panggil ulang endpoint tersebut dan pastikan total_difference == 0.0 untuk kedua entitas. Uji regresi cukup dijalankan lagi lewat `pytest /app/backend/tests/test_iter256_e2e_flow_sweep.py -v` (18 detik). Uji WRITE E2E dalam (buat PR→ACC→PO→GR→VB→post GL end-to-end via API) BELUM dilakukan di iter 256 (fokus sapuan); iter berikutnya dapat menembakkan satu skenario penuh menggunakan endpoint POST/approve yang sudah diketahui bentuknya.",
+  "rca of the issue": "G1 (drift Rp 0.01): agregat subledger di gl_service.inventory_reconciliation() menjumlahkan `rolls[*].last_cost_amount` (float64) langsung. Dua atau lebih nilai .5 sen dibulatkan berbeda ketika dijumlah lawan snapshot GL yang di-round-half-even. Solusi: (a) simpan nilai roll sebagai Decimal(18,4) atau kalikan 100 → int di DB; (b) di endpoint recon, `round(subledger,2)` dan bandingkan `abs(diff) < 0.02` sebelum dilaporkan 'selisih'. Reproduksi: `curl /api/gl/inventory-reconciliation -H 'X-Entity-Id:ent_ksc'` → total_difference: 0.01."
+}
