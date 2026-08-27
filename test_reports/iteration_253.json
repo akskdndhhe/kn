@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 253 — sesi 2026-06b verification (Kanda residu tuntas, tuduhan berklik, lonceng berhalaman, papan Meja Finance). POC utama HIJAU: `python backend/test_core_sesi_2026_06b_poc.py` → 32 PASS · 0 FAIL (semua residu nol). Backend tes tambahan /app/backend/tests/test_iter253_session_2026_06b.py → 7/7 PASS. UI: (b) admin→KSC→Buku Besar→gl-tab-recon: baris ent_ksc menunjukkan Rp 0 (LUNAS) & ent_kanda Rp 900.000 dengan tombol 'Kenapa berselisih?'. Klik recon-explain-ent_ksc → recon-suspect-open-true_up_sebelumnya → panel recon-suspect-evidence-true_up_sebelumnya memuat 'Jurnal KSC/JE-00021 · 2026-08-25 · Saldo awal / true-up persediaan · 1-1300 D Rp 623.466.500 / 3-2900 K Rp 623.466.500' (dokumen nyata, bukan pesan error). (c) admin bell (setelah POST /api/notifications/generate → created:28): notif-list-end tampil 'Sudah sampai baris terakhir · 12 dari 12 notifikasi' cocok dengan notif-badge=12 (X<=Y). GET /api/notifications page=1,page_size=2 mengembalikan envelope {items,total=13,page,page_size,has_more=True}; page=2 berisi baris berbeda; TANPA parameter tetap array telanjang; unread-count <= total; isolasi sales3 (Kanda) tidak melihat notif non-kritis KSC. (d) finance→KSC→Meja Finance: fin-home-boards tampil dengan fin-home-board-contra_bon_approve (count=0, selalu tampak), contra_bon_verify (count=1) memuat 'KSC/CB-00003 · Solo Weave · hari ini' (nomor dokumen + umur tunggu). Dispute & vendor_bill (count=0) SENGAJA tidak dirender (papan lain hanya bila berisi — sesuai kontrak). Klik fin-home-board-contra_bon_verify-goto membawa ke ?view=contra-bons ('Kontrabon · Siklus Tukar Faktur Supplier'). Backend /api/home/finance ent_kanda oleh finance → 403 (isolasi ketat).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/test_core_sesi_2026_06b_poc.py",
+    "/app/backend/tests/test_iter253_session_2026_06b.py",
+    "/app/test_reports/pytest/iter253.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/services/gl_service.py::inventory_drift_explain — suspect 'pembulatan' (|Δ|<=Rp1) sengaja TIDAK membawa `ref` karena tidak ada dokumen yang bisa dituju; POC juga hanya mengharuskan `ref` untuk tuduhan yang dapat dijelaskan dokumennya (`_roll_ref`/journal/account). Jika review memaksa 'setiap suspect' harus ref, pertimbangkan sematkan `ref: {kind:'account', id:'1-1300'}` juga untuk pembulatan agar bebas ambiguitas — tapi ini rasa selera, bukan bug.",
+    "backend/routers/home.py::/home/finance mengembalikan waiting_boards sebagai LIST (setiap item bawa key/label/view/count/shown/hidden/truncated/rows) — bukan dict. Ini konsisten dengan konsumsi FE (FinanceDesk/WaitingBoardsStrip iterasi list.map). Layak dicatat di kontrak API karena tulisan review yang menyebut 'kunci' bisa membingungkan agen berikutnya.",
+    "Filter default lonceng 'Belum dibaca' membuat load-more tak muncul saat 28 dibuat namun hanya 12 yang belum dibaca — end-marker tetap konsisten (X dari Y). Untuk menguji load-more click terpicu, agen berikutnya boleh mematikan filter 'Belum dibaca' atau memakai page_size kecil."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter253_session_2026_06b.py", "/app/test_reports/iteration_253.json"],
+  "success_rate": {"backend": "100% (POC 32/32 + pytest 7/7)", "frontend": "100% (b/c/d semua terbukti; navigasi Buka Kontrabon lolos)"},
+  "test_credentials": "admin@ / finance@ / sales3@ / manager@ / sales@ / warehouse@ · demo12345",
+  "seed_data_creation": "POST /api/notifications/generate (28 dibuat) untuk uji lonceng; POC 2026-06b membuat snapshot & memulihkan 281 dokumen ke keadaan awal (nol residu terukur).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Sesi 2026-06b selesai HIJAU. Kunci: (a) backend/services/interco_return_service.py::on_return_task_executed sekarang membaca `unit_cost or base_unit_cost` sehingga roll retur bernilai selalu berjurnal — buktinya subledger==GL 1-1300 di ent_ksc setelah eksekusi tugas gudang. (b) suspects.ref: _roll_ref di gl_service.py; 'pembulatan' by-design tanpa ref. (c) /api/notifications SUPPORT page/page_size opt-in — TANPA parameter tetap array telanjang untuk kompat mundur. (d) /home/finance mengembalikan waiting_boards LIST 4-elemen tetap urut, isolasi ketat via _own_entity (403 luar penugasan). Testids UI: gl-tab-recon (bukan hub-tab-inventory-recon), nav-ledger (bukan nav-general-ledger), fin-home-board-<key>-goto untuk navigasi.",
+  "rca of the issue": "N/A — fitur bekerja sesuai desain."
+}

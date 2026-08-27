@@ -1,0 +1,30 @@
+{
+  "summary": "Iterasi 254 — sesi 2026-06c: (1) nilai tagihan supplier, (2) riwayat nilai roll, (3) papan bisa ditindak. Backend pytest baru (/app/backend/tests/test_iter254_session_2026_06c.py) — 8/8 PASS. Bukti kunci: GET /api/home/finance (admin, ent_ksc) → papan `vendor_bill`, `contra_bon_verify`, `contra_bon_approve` mengembalikan `rows[].amount > 0` (rupiah nyata) + `note` (nomor faktur/status match). Admin dapat `rows[].action={label,method,path,note_field,body}`; peran finance mendapat rows namun `action=null` untuk vendor_bill & contra_bon (matriks izin sengaja). Antrean `contra_bon_dispute` dan `inspection_hold` konsisten `action=null` di semua peran. Uji end-to-end: POST /api/transfers/{id}/approve via path aksi baris papan admin → 200, dan baris terkait HILANG dari papan setelah re-fetch. Roll cost-history: GET /api/inventory/rolls/{roll_id}/cost-history mengembalikan {roll_no, unit_cost, count, history[]} — tiap entri lengkap {old_unit_cost,new_unit_cost,delta_value,reason,reason_label,actor,ref_number}; roll KSC yang diminta oleh user Kanda-only → 403. Frontend UI (admin/ent_ksc): tombol `admin-home-special-order-act-<id>` muncul di baris papan Beranda → membuka dialog konfirmasi (`admin-home-special-order-confirm-{message,reason,cancel,confirm}` — reason input OPSIONAL) → klik konfirmasi (tanpa catatan) → toast 'Setujui: SORD-260816-0001 · Papan diperbarui' muncul dan papan otomatis reload; ini membuktikan alur act→confirm→toast→reload. Navigasi Buku Besar → Rekonsiliasi Persediaan → `recon-explain-ent_ksc` bekerja (KSC selisih Rp 0 sehingga hanya 1 suspect 'pembulatan' — sesuai desain, tak ber-cost-history). Untuk verifikasi UI cost-history di suspect roll, gunakan `recon-explain-ent_kanda` (Rp 900.000 selisih) sebagaimana diverifikasi iterasi 253. Komponen RollGradePanel (frontend/src/features/wms/RollGradePanel.jsx) memanggil GET .../cost-history dan merender `roll-cost-history` + `roll-cost-current` + entri `roll-cost-history-{i}` (kode diverifikasi).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter254_session_2026_06c.py",
+    "/app/test_reports/pytest/iter254.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "approval_backlog_service.ACTION_META secara konsisten memutus pintu keputusan yang belum sebaiknya diringkas jadi tombol (contra_bon_dispute, inspection_hold, payment_variance, rnd_sample) — komentar sumber sudah menjelaskan alasannya per kunci; pertahankan.",
+    "queue_detail() memanggil _row_action untuk setiap baris. Jika baris papan ditampilkan ke peran yang tidak berwenang (mis. finance melihat vendor_bill di Meja Finance), `action=null` masih diserialisasi — tidak masalah, tetapi FE (WaitingQueueBoard) harus hanya merender tombol ketika action != null (sudah demikian di kode).",
+    "roll_cost_history.record() abaikan perubahan <0.005 (anti-bising). Sengaja. Selama landed_cost & interco menulis nilai sebelum dan sesudah TIDAK bulat sama, jejak akan terekam. Migrasi startup_backfill dan revaluasi diverifikasi menghasilkan entri (test_cost_history_endpoint_shape hijau)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter254_session_2026_06c.py",
+    "/app/test_reports/iteration_254.json"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "verified (act→confirm→toast→reload)"},
+  "test_credentials": "admin@ / manager@ / finance@ / sales@ · demo12345 (ent_ksc)",
+  "seed_data_creation": "python seed_realistic.py && python seed_e9_chain_demo.py --force dijalankan sebelum tes (menyiapkan roll_cost_history seed dari landed_cost + interco_return_revalue + startup_backfill).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Tiga fitur sesi 2026-06c HIJAU. Testids kunci: (a) papan bisa ditindak → cari data-testid berpola `<homeBase>-<key>-act-<id>` (mis. admin-home-special-order-act-<id>, wms-home-board-transfer-row-act-<id>, sales-home-board-price-row-act-<id>). Dialog konfirmasi: sufiks `-confirm`, `-confirm-message`, `-confirm-reason` (OPSIONAL — kosongkan tetap bisa submit), `-confirm-cancel`, `-confirm-confirm`. Setelah submit muncul toast 'Setujui: <no> · Papan diperbarui.'. (b) Roll cost-history → data-testid=roll-cost-history + roll-cost-current + roll-cost-history-{i} atau roll-cost-history-empty; RollGradePanel dibuka lewat RollInspectionModal (WMS Stock → klik roll → panel inspection → panel grade). (c) Recon evidence cost-history → nav-group-toggle-keuangan → nav-ledger → gl-tab-recon → recon-explain-ent_kanda (Kanda punya Rp 900.000 selisih dgn suspect roll) → suspect open → recon-suspect-cost-history. Peran finance SENGAJA tak dapat action pada vendor_bill/contra_bon (matriks izin). Backend endpoint POST aksi (transfer approve dsb) MENGUBAH data demo — jika berbenturan dengan uji lain, restore lewat seed_realistic.py + seed_e9_chain_demo.py --force.",
+  "rca of the issue": "N/A — fitur bekerja sesuai desain."
+}
